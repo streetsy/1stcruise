@@ -438,30 +438,14 @@ function App(){
   const [lastSync,setLastSync]=useState(null);
   const [isOnline,setIsOnline]=useState(navigator.onLine);
 
-  // Online/offline listeners + visibilitychange (pull when app comes back into focus)
-  useEffect(()=>{
-    const onl=()=>setIsOnline(true);
-    const ofl=()=>setIsOnline(false);
-    window.addEventListener('online',onl);
-    window.addEventListener('offline',ofl);
-    return()=>{window.removeEventListener('online',onl);window.removeEventListener('offline',ofl);};
-  },[]);
-
-  // Pull from Gist whenever the app tab/window comes back into focus
-  useEffect(()=>{
-    const onVisible=async()=>{
-      if(document.visibilityState!=='visible') return;
-      if(!navigator.onLine||!syncCfg.token||!syncCfg.gistId) return;
-      const local=await dbGet('appData');
-      await pullGist(local?.ts||0,syncCfg);
-    };
-    document.addEventListener('visibilitychange',onVisible);
-    return()=>document.removeEventListener('visibilitychange',onVisible);
-  },[syncCfg,pullGist]);
+  // Use a ref for syncCfg so async callbacks always see the latest value
+  // without needing to be re-registered as event listeners
+  const syncCfgRef = useRef(syncCfg);
+  useEffect(()=>{syncCfgRef.current=syncCfg;},[syncCfg]);
 
   // Push local data to Gist
   const pushGist=useCallback(async(data,cfg)=>{
-    const {token,gistId}=cfg||syncCfg;
+    const {token,gistId}=cfg||syncCfgRef.current;
     if(!token||!gistId) return;
     try{
       setSyncStatus('syncing');
@@ -476,11 +460,11 @@ function App(){
       setSyncStatus('error');
       console.warn('Gist push failed:',e);
     }
-  },[syncCfg]);
+  },[]);
 
-  // Pull remote data from Gist and merge (newer wins)
+  // Pull remote data from Gist (newer wins)
   const pullGist=useCallback(async(localTs,cfg)=>{
-    const {token,gistId}=cfg||syncCfg;
+    const {token,gistId}=cfg||syncCfgRef.current;
     if(!token||!gistId||!navigator.onLine) return;
     try{
       setSyncStatus('syncing');
@@ -498,7 +482,28 @@ function App(){
       setSyncStatus('error');
       console.warn('Gist pull failed:',e);
     }
-  },[syncCfg]);
+  },[]);
+
+  // Online/offline listeners
+  useEffect(()=>{
+    const onl=()=>setIsOnline(true);
+    const ofl=()=>setIsOnline(false);
+    window.addEventListener('online',onl);
+    window.addEventListener('offline',ofl);
+    return()=>{window.removeEventListener('online',onl);window.removeEventListener('offline',ofl);};
+  },[]);
+
+  // Pull from Gist whenever the app comes back into focus (defined after pullGist)
+  useEffect(()=>{
+    const onVisible=async()=>{
+      if(document.visibilityState!=='visible') return;
+      if(!navigator.onLine||!syncCfgRef.current.token||!syncCfgRef.current.gistId) return;
+      const local=await dbGet('appData');
+      await pullGist(local?.ts||0);
+    };
+    document.addEventListener('visibilitychange',onVisible);
+    return()=>document.removeEventListener('visibilitychange',onVisible);
+  },[pullGist]);
 
   // Initial load from IndexedDB, then reconcile with Gist
   useEffect(()=>{
@@ -622,11 +627,12 @@ function App(){
               [h('div',{key:'d',className:`sync-dot ${syncDot[syncStatus]||'dot-idle'}`}),
                h('span',{key:'t',style:{display:'none'}})]
             ),
-            h('button',{key:'sy',className:'btn btn-sm',title:syncCfg.gistId?'Tap to sync now, hold to open settings':'Set up sync',
+            h('button',{key:'sy',className:'btn btn-sm',
+              title:syncCfg.gistId?'Tap to pull latest from Gist · Right-click for settings':'Set up sync',
               onClick:async()=>{
                 if(!syncCfg.gistId){setModal({t:'sync'});return;}
                 const local=await dbGet('appData');
-                await pullGist(local?.ts||0,syncCfg);
+                await pullGist(local?.ts||0);
               },
               onContextMenu:e=>{e.preventDefault();setModal({t:'sync'});},
               style:{background:'rgba(201,164,90,0.15)',color:'#C9A45A',border:'1px solid rgba(201,164,90,0.35)',padding:'6px 10px'}},
