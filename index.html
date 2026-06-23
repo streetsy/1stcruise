@@ -438,7 +438,7 @@ function App(){
   const [lastSync,setLastSync]=useState(null);
   const [isOnline,setIsOnline]=useState(navigator.onLine);
 
-  // Online/offline listeners
+  // Online/offline listeners + visibilitychange (pull when app comes back into focus)
   useEffect(()=>{
     const onl=()=>setIsOnline(true);
     const ofl=()=>setIsOnline(false);
@@ -446,6 +446,18 @@ function App(){
     window.addEventListener('offline',ofl);
     return()=>{window.removeEventListener('online',onl);window.removeEventListener('offline',ofl);};
   },[]);
+
+  // Pull from Gist whenever the app tab/window comes back into focus
+  useEffect(()=>{
+    const onVisible=async()=>{
+      if(document.visibilityState!=='visible') return;
+      if(!navigator.onLine||!syncCfg.token||!syncCfg.gistId) return;
+      const local=await dbGet('appData');
+      await pullGist(local?.ts||0,syncCfg);
+    };
+    document.addEventListener('visibilitychange',onVisible);
+    return()=>document.removeEventListener('visibilitychange',onVisible);
+  },[syncCfg,pullGist]);
 
   // Push local data to Gist
   const pushGist=useCallback(async(data,cfg)=>{
@@ -544,8 +556,29 @@ function App(){
     setSyncCfg(cfg);
     await dbSet('syncCfg',cfg);
     if(cfg.token&&cfg.gistId&&navigator.onLine){
-      const data=await dbGet('appData');
-      await pushGist(data||{meta,itin,ts:Date.now()},cfg);
+      // Always pull first — never blindly overwrite the Gist when connecting a new device.
+      // Only push if local data is genuinely newer than what is already in the Gist.
+      try{
+        setSyncStatus('syncing');
+        const remote=await gistRead(cfg.token,cfg.gistId);
+        const local=await dbGet('appData');
+        const localTs=local?.ts||0;
+        const remoteTs=remote?.ts||0;
+        if(remoteTs>localTs){
+          if(remote.meta)setMeta(remote.meta);
+          if(remote.itin)setItin(remote.itin);
+          await dbSet('appData',remote);
+        } else if(localTs>remoteTs&&local){
+          await pushGist(local,cfg);
+        }
+        const now=Date.now();
+        await dbSet('lastSync',now);
+        setLastSync(now);
+        setSyncStatus('synced');
+      }catch(e){
+        setSyncStatus('error');
+        console.warn('Sync on connect failed:',e);
+      }
     }
     setModal(null);
   }
@@ -589,7 +622,14 @@ function App(){
               [h('div',{key:'d',className:`sync-dot ${syncDot[syncStatus]||'dot-idle'}`}),
                h('span',{key:'t',style:{display:'none'}})]
             ),
-            h('button',{key:'sy',className:'btn btn-sm',title:'Sync settings',onClick:()=>setModal({t:'sync'}),style:{background:'rgba(201,164,90,0.15)',color:'#C9A45A',border:'1px solid rgba(201,164,90,0.35)',padding:'6px 10px'}},
+            h('button',{key:'sy',className:'btn btn-sm',title:syncCfg.gistId?'Tap to sync now, hold to open settings':'Set up sync',
+              onClick:async()=>{
+                if(!syncCfg.gistId){setModal({t:'sync'});return;}
+                const local=await dbGet('appData');
+                await pullGist(local?.ts||0,syncCfg);
+              },
+              onContextMenu:e=>{e.preventDefault();setModal({t:'sync'});},
+              style:{background:'rgba(201,164,90,0.15)',color:'#C9A45A',border:'1px solid rgba(201,164,90,0.35)',padding:'6px 10px'}},
               syncCfg.gistId?'⟳ Sync':'☁ Sync'
             ),
             h('button',{key:'ed',className:'btn btn-sm',onClick:()=>setModal({t:'meta'}),style:{background:'rgba(255,255,255,0.08)',color:'rgba(255,255,255,0.8)',border:'1px solid rgba(255,255,255,0.15)',padding:'6px 10px'}},'✎')

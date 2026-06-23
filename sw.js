@@ -1,4 +1,4 @@
-const CACHE = 'cruise-planner-v1';
+const CACHE = 'cruise-planner-v2';
 const PRECACHE = [
   './',
   './index.html',
