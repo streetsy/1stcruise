@@ -272,8 +272,8 @@ function TodayScreen({data,onGoToDay}){
       h('div',{key:'cd',className:'countdown-card'},[
         h('div',{style:{fontSize:48,marginBottom:8}},'⚓'),
         h('div',{style:{fontFamily:'Georgia,serif',fontSize:22,fontWeight:700,marginBottom:6}},data.meta.voyage||'Your Cruise'),
-        h('div',{style:{fontSize:15,opacity:0.75,marginBottom:16}},data.meta.ship||''},
-        h('div',{style:{fontSize:42,fontWeight:700,color:'#C9A45A'}},days),
+h('div',{style:{fontSize:15,opacity:0.75,marginBottom:16}},data.meta.ship||''),
+h('div',{style:{fontSize:42,fontWeight:700,color:'#C9A45A'}},days),
         h('div',{style:{fontSize:14,opacity:0.8}},'days until departure')
       ]),
       h('div',{key:'sc',className:'card'},[
